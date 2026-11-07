@@ -18,7 +18,7 @@
   var params = new URLSearchParams(location.search);
   var channel = params.get("channel") || "UCoMdktPbSTixAyNGwb-UYkQ";
   var player;
-  function tell(state, code) { try { parent.postMessage(JSON.stringify({ type: "player", state: state, code: code }), "*"); } catch (e) {} }
+  function tell(state, code, vid) { try { parent.postMessage(JSON.stringify({ type: "player", state: state, code: code, videoId: vid || "" }), "*"); } catch (e) {} }
   tell("loaded");
   // Point the player at the channel's live stream.
   (function () {
@@ -33,7 +33,7 @@
       player = new YT.Player("p", { events: {
         onReady: function (e) { e.target.mute(); e.target.playVideo(); },
         onStateChange: function (e) { if (e.data === 1) tell("playing"); },
-        onError: function (e) { tell("error", e && e.data); }
+        onError: function (e) { var id = ""; try { id = e.target.getVideoData().video_id; } catch (x) {} tell("error", e && e.data, id); }
       } });
     };
     var s = document.createElement("script"); s.src = "https://www.youtube.com/iframe_api"; document.head.appendChild(s);
