@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>News player</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  #p { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<div id="p"></div>
+<script>
+  // Plays a YouTube channel's current live stream, muted, for the TV launcher.
+  // The launcher sends {type:"launcher", cmd:"mute"|"unmute"} and gets {type:"player", state:...} back.
+  var params = new URLSearchParams(location.search);
+  var channel = params.get("channel") || "UCoMdktPbSTixAyNGwb-UYkQ";
+  var player;
+  function tell(state) { try { parent.postMessage(JSON.stringify({ type: "player", state: state }), "*"); } catch (e) {} }
+  // Point the player at the channel's live stream.
+  (function () {
+    var div = document.getElementById("p");
+    var f = document.createElement("iframe");
+    f.id = "p"; f.width = "100%"; f.height = "100%"; f.frameBorder = "0";
+    f.allow = "autoplay; encrypted-media";
+    f.src = "https://www.youtube.com/embed/live_stream?channel=" + encodeURIComponent(channel) +
+      "&autoplay=1&mute=1&controls=0&rel=0&playsinline=1&enablejsapi=1&origin=" + encodeURIComponent(location.origin);
+    div.parentNode.replaceChild(f, div);
+    window.onYouTubeIframeAPIReady = function () {
+      player = new YT.Player("p", { events: {
+        onReady: function (e) { e.target.mute(); e.target.playVideo(); },
+        onStateChange: function (e) { if (e.data === 1) tell("playing"); },
+        onError: function () { tell("error"); }
+      } });
+    };
+    var s = document.createElement("script"); s.src = "https://www.youtube.com/iframe_api"; document.head.appendChild(s);
+  })();
+  window.addEventListener("message", function (e) {
+    var d = e.data; try { if (typeof d === "string") d = JSON.parse(d); } catch (_) { return; }
+    if (!d || d.type !== "launcher" || !player || !player.mute) return;
+    if (d.cmd === "mute") player.mute();
+    if (d.cmd === "unmute") { player.unMute(); player.setVolume(100); }
+  });
+</script>
+</body>
+</html>
