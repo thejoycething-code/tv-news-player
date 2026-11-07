@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Link Spotify to the TV launcher</title>
+<style>
+  :root { --bg: #f4f5f8; --fg: #14171f; --muted: #5b6172; --card: #fff; --line: #dde0e8; --accent: #1db954; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #0f1117; --fg: #e9ebf1; --muted: #9aa1b5; --card: #171a23; --line: #2a2f3d; } }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.55 system-ui, -apple-system, sans-serif; padding: 32px 16px 64px; }
+  main { max-width: 680px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+  h1 { font-size: 28px; margin: 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+  label { font-weight: 600; }
+  input { font: inherit; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+  button { font: inherit; font-weight: 700; padding: 12px 18px; border-radius: 999px; border: 0; background: var(--accent); color: #fff; cursor: pointer; align-self: flex-start; }
+  code, textarea { font: 13px/1.5 ui-monospace, Menlo, monospace; }
+  textarea { width: 100%; box-sizing: border-box; min-height: 120px; padding: 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+  .muted { color: var(--muted); }
+  ol { margin: 0; padding-left: 22px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Link Spotify to the TV launcher</h1>
+  <p class="muted">Nothing is sent anywhere except Spotify. The sign-in key is shown only on this page, for you to copy into the launcher on your Mac.</p>
+
+  <div class="card" id="step1">
+    <label for="cid">Spotify app Client ID</label>
+    <input id="cid" autocomplete="off" spellcheck="false" placeholder="e.g. 3f9c...">
+    <p class="muted">From developer.spotify.com/dashboard, in the app you created. Its Redirect URI must be exactly:<br><code id="redir"></code></p>
+    <button id="go">Sign in to Spotify</button>
+  </div>
+
+  <div class="card" id="step2" hidden>
+    <strong>Linked. Now add it to the launcher</strong>
+    <ol>
+      <li>Download the latest Home wgt file to your Downloads folder, as usual.</li>
+      <li>Open Terminal on your Mac, paste the command below and press Return.</li>
+      <li>Install the new file it makes, whose name ends in <code>-spotify.wgt</code>, with the TizenBrew Installer.</li>
+    </ol>
+    <textarea id="cmd" readonly></textarea>
+    <button id="copy">Copy command</button>
+    <p class="muted">Keep this command private: it lets the launcher see what's playing on your Spotify account.</p>
+  </div>
+  <p class="muted" id="msg"></p>
+</main>
+<script>
+(function () {
+  var REDIRECT = location.origin + location.pathname;
+  var SCOPES = "user-read-currently-playing user-read-playback-state";
+  var $ = function (id) { return document.getElementById(id); };
+  $("redir").textContent = REDIRECT;
+  function b64url(bytes) { var s = ""; bytes.forEach(function (b) { s += String.fromCharCode(b); }); return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); }
+  function rand(n) { var a = new Uint8Array(n); crypto.getRandomValues(a); return b64url(a); }
+  $("go").onclick = async function () {
+    var cid = $("cid").value.trim();
+    if (!cid) { $("msg").textContent = "Paste the Client ID first."; return; }
+    var verifier = rand(64);
+    var digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
+    sessionStorage.setItem("sp_verifier", verifier);
+    sessionStorage.setItem("sp_cid", cid);
+    location.href = "https://accounts.spotify.com/authorize?" + new URLSearchParams({
+      response_type: "code", client_id: cid, scope: SCOPES, redirect_uri: REDIRECT,
+      code_challenge_method: "S256", code_challenge: b64url(digest)
+    });
+  };
+  var q = new URLSearchParams(location.search);
+  if (q.get("error")) $("msg").textContent = "Spotify said: " + q.get("error");
+  if (q.get("code")) {
+    var cid = sessionStorage.getItem("sp_cid"), verifier = sessionStorage.getItem("sp_verifier");
+    history.replaceState(null, "", REDIRECT);
+    fetch("https://accounts.spotify.com/api/token", {
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "authorization_code", code: q.get("code"), redirect_uri: REDIRECT, client_id: cid, code_verifier: verifier })
+    }).then(function (r) { return r.json(); }).then(function (t) {
+      if (!t.refresh_token) { $("msg").textContent = "Spotify didn't return a key: " + (t.error_description || t.error || "unknown error"); return; }
+      sessionStorage.removeItem("sp_verifier");
+      var js = "window.SPOTIFY = " + JSON.stringify({ clientId: cid, refreshToken: t.refresh_token }) + ";";
+      $("cmd").value = "cd ~/Downloads && W=$(ls -t Home-v*.wgt | grep -v spotify | head -1) && mkdir -p launcher-spotify && cd launcher-spotify && unzip -oq ../$W && printf '%s\\n' '" + js + "' > spotify.js && zip -qr ../${W%.wgt}-spotify.wgt . && cd .. && echo Made ${W%.wgt}-spotify.wgt";
+      $("step1").hidden = true; $("step2").hidden = false;
+    }).catch(function (e) { $("msg").textContent = "Couldn't reach Spotify: " + e; });
+  }
+  $("copy").onclick = function () { $("cmd").select(); navigator.clipboard.writeText($("cmd").value).then(function () { $("msg").textContent = "Copied."; }); };
+})();
+</script>
+</body>
+</html>
